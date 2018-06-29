@@ -22,10 +22,10 @@ def create_dataset(
   ########################################
   # Specify Directory and Partition File #
   ########################################
-
+  root_path = '/proj'
   if name == 'market1501':
-    im_dir = ospeu('~/Dataset/market1501/images')
-    partition_file = ospeu('~/Dataset/market1501/partitions.pkl')
+    im_dir = ospeu(ospj(root_path, 'Dataset/market1501/images'))
+    partition_file = ospeu(ospj(root_path, '~/Dataset/market1501/partitions.pkl'))
 
   elif name == 'cuhk03':
     im_type = ['detected', 'labeled'][0]
