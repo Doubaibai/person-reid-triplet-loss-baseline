@@ -45,8 +45,8 @@ class PreProcessIm(object):
     self.batch_dims = batch_dims
     self.prng = prng
 
-  def __call__(self, im):
-    return self.pre_process_im(im)
+  def __call__(self, im, mask):
+    return self.pre_process_im(im, mask)
 
   @staticmethod
   def check_mirror_type(mirror_type):
@@ -73,11 +73,13 @@ class PreProcessIm(object):
       im[h_start: h_start + new_size[1], w_start: w_start + new_size[0], :])
     return im
 
-  def pre_process_im(self, im):
+  def pre_process_im(self, im, mask):
     """Pre-process image.
     `im` is a numpy array with shape [H, W, 3], e.g. the result of
     matplotlib.pyplot.imread(some_im_path), or
-    numpy.asarray(PIL.Image.open(some_im_path))."""
+    numpy.asarray(PIL.Image.open(some_im_path)).
+    'mask' is numpy array with shape [H, W]
+    """
 
     # Randomly crop a sub-image.
     if ((self.crop_ratio < 1)
@@ -93,6 +95,19 @@ class PreProcessIm(object):
     if (self.resize_h_w is not None) \
         and (self.resize_h_w != (im.shape[0], im.shape[1])):
       im = cv2.resize(im, self.resize_h_w[::-1], interpolation=cv2.INTER_LINEAR)
+      mask = cv2.resize(mask, self.resize_h_w[::-1], interpolation=cv2.INTER_LINEAR)
+      # cv2.imwrite('tmp.jpg', mask*255)
+      # import pdb
+      # pdb.set_trace()
+      # import torch
+      # import torch.nn.functional as F
+      # from torch.autograd.variable import Variable
+      # mask = Variable(torch.from_numpy(mask.copy()).float())
+      # mask = mask.view(1,256,128)
+      # mask = F.avg_pool2d(mask, (16,16))
+      # mask = mask.view(16,8)
+      # mask = mask.data.numpy()
+      # cv2.imwrite('pool.jpg', mask*255)
 
     # scaled by 1/255.
     if self.scale:
@@ -109,13 +124,18 @@ class PreProcessIm(object):
 
     # May mirror image.
     mirrored = False
-    if self.mirror_type == 'always' \
-        or (self.mirror_type == 'random' and self.prng.uniform() > 0.5):
+    # if self.mirror_type == 'always' \
+        # or (self.mirror_type == 'random' and self.prng.uniform() > 0.5):
+    if True:
       im = im[:, ::-1, :]
+      mask = mask[:, ::-1]
+      # cv2.imwrite('mirrored.jpg', mask*255)
       mirrored = True
 
+    # print('Done')
+    # exit(0)
     # The original image has dims 'HWC', transform it to 'CHW'.
     if self.batch_dims == 'NCHW':
       im = im.transpose(2, 0, 1)
 
-    return im, mirrored
+    return im, mask, mirrored

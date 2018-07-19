@@ -5,16 +5,16 @@ import os.path as osp
 from PIL import Image
 import numpy as np
 from collections import defaultdict
+import pickle as pkl
 
 from .Dataset import Dataset
 
 from ..utils.utils import measure_time
 from ..utils.re_ranking import re_ranking
 from ..utils.metric import cmc, mean_ap
-from ..utils.dataset_utils import parse_im_name
+from ..utils.dataset_utils import parse_im_name, load_mask
 from ..utils.distance import normalize
 from ..utils.distance import compute_dist
-
 
 class TestSet(Dataset):
   """
@@ -30,6 +30,7 @@ class TestSet(Dataset):
   def __init__(
       self,
       im_dir=None,
+      mask_dirs=None,
       im_names=None,
       marks=None,
       extract_feat_func=None,
@@ -42,6 +43,7 @@ class TestSet(Dataset):
 
     # The im dir of all images
     self.im_dir = im_dir
+    self.mask_dirs = mask_dirs
     self.im_names = im_names
     self.marks = marks
     self.extract_feat_func = extract_feat_func
@@ -54,27 +56,31 @@ class TestSet(Dataset):
 
   def get_sample(self, ptr):
     im_name = self.im_names[ptr]
+    mask_name = im_name+'.pkl'
+    mask_files = [osp.join(mask_dir, mask_name) for mask_dir in self.mask_dirs]
+    mask = load_mask(mask_files, pool='bor')
     im_path = osp.join(self.im_dir, im_name)
     im = np.asarray(Image.open(im_path))
-    im, _ = self.pre_process_im(im)
+    im, mask, _ = self.pre_process_im(im, mask)
     id = parse_im_name(self.im_names[ptr], 'id')
     cam = parse_im_name(self.im_names[ptr], 'cam')
     # denoting whether the im is from query, gallery, or multi query set
     mark = self.marks[ptr]
-    return im, id, cam, im_name, mark
+    return im, mask, id, cam, im_name, mark
 
   def next_batch(self):
     if self.epoch_done and self.shuffle:
       self.prng.shuffle(self.im_names)
     samples, self.epoch_done = self.prefetcher.next_batch()
-    im_list, ids, cams, im_names, marks = zip(*samples)
+    im_list, mask_list, ids, cams, im_names, marks = zip(*samples)
     # Transform the list into a numpy array with shape [N, ...]
     ims = np.stack(im_list, axis=0)
+    masks = np.stack(mask_list, axis=0)
     ids = np.array(ids)
     cams = np.array(cams)
     im_names = np.array(im_names)
     marks = np.array(marks)
-    return ims, ids, cams, im_names, marks, self.epoch_done
+    return ims, masks, ids, cams, im_names, marks, self.epoch_done
 
   def extract_feat(self, normalize_feat, verbose=True):
     """Extract the features of the whole image set.
@@ -95,8 +101,8 @@ class TestSet(Dataset):
     st = time.time()
     last_time = time.time()
     while not done:
-      ims_, ids_, cams_, im_names_, marks_, done = self.next_batch()
-      feat_ = self.extract_feat_func(ims_)
+      ims_, masks_, ids_, cams_, im_names_, marks_, done = self.next_batch()
+      feat_ = self.extract_feat_func(ims_, masks_)
       feat.append(feat_)
       ids.append(ids_)
       cams.append(cams_)

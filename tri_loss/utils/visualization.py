@@ -2,9 +2,14 @@ import numpy as np
 from PIL import Image
 import cv2
 from os.path import dirname as ospdn
+import os.path as osp
+ospj = osp.join
+ospeu = osp.expanduser
+import numpy as np
+import pickle as pkl
 
 from tri_loss.utils.utils import may_make_dir
-
+from tri_loss.utils.dataset_utils import load_mask
 
 def add_border(im, border_width, value):
   """Add color border around an image. The resulting image size is not changed.
@@ -93,6 +98,15 @@ def get_rank_list(dist_vec, q_id, q_cam, g_ids, g_cams, rank_list_size):
 def read_im(im_path):
   # shape [H, W, 3]
   im = np.asarray(Image.open(im_path))
+  # Only show masked images
+  root_path = '/proj'
+  mask_dirs = [ospeu(ospj(root_path, 'masks/market1501/')), ospeu(ospj(root_path, 'masks2/market1501/')), \
+    ospeu(ospj(root_path, 'masks_X-152/market1501/'))]
+  im_name = im_path.split('/')[-1]
+  mask_files = [ospj(mask_dir, im_name+'.pkl') for mask_dir in mask_dirs]
+  mask = load_mask(mask_files, pool='bor')
+  mask = np.tile(mask, (3,1,1)).transpose((1,2,0))
+  im = np.multiply(im, mask)
   # Resize to (im_h, im_w) = (128, 64)
   resize_h_w = (128, 64)
   if (im.shape[0], im.shape[1]) != resize_h_w:
@@ -122,6 +136,7 @@ def save_rank_list_to_im(rank_list, same_id, q_im_path, g_im_paths, save_path):
   ims = [read_im(q_im_path)]
   for ind, sid in zip(rank_list, same_id):
     im = read_im(g_im_paths[ind])
+
     # Add green boundary to true positive, red to false positive
     color = np.array([0, 255, 0]) if sid else np.array([255, 0, 0])
     im = add_border(im, 3, color)

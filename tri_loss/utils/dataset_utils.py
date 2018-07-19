@@ -2,10 +2,54 @@ from __future__ import print_function
 import os.path as osp
 import numpy as np
 import glob
+import pickle as pkl
 from collections import defaultdict
 import shutil
 
 new_im_name_tmpl = '{:08d}_{:04d}_{:08d}.jpg'
+
+def load_mask(mask_files, pool='max'):
+  # Use model ensemble
+  # Use 152 mask or rest
+  valid_mask = 0
+  # mask_file_152 = mask_files[-1]
+  # if osp.exists(mask_file_152):
+  #   with open(mask_file_152, 'r') as f:
+  #     masks_all, scores_all = pkl.load(f)
+  #   # Use mask if score > threshold
+  #   max_id = np.argmax(scores_all)
+  #   if scores_all[max_id] > 0.98:
+  #     mask = masks_all[max_id]
+  #     return mask
+  # mask_files = mask_files[:-1]
+  count = 0
+  for fi, mask_file in enumerate(mask_files):
+    if not osp.exists(mask_file):
+      if valid_mask == 0 and fi == len(mask_files)-1:
+      	return np.ones((128,64), dtype=np.uint8)
+      else:
+      	continue
+    with open(mask_file, 'r') as f:
+      masks_all, scores_all = pkl.load(f)
+    if pool == 'max':
+      # Use mask with highest scores
+      max_id = np.argmax(scores_all)
+      mask = masks_all[max_id]
+    elif pool == 'bor':
+      # Bitwise and for all mask
+      if valid_mask == 0:
+      	mask = masks_all[0]
+      	valid_mask = 1
+        count += 1
+      else:
+        for i in range(0, len(masks_all)):
+          # mask = np.bitwise_or(mask, masks_all[i])
+          mask = np.add(mask, masks_all[i])
+          count += 1
+  # prob mask
+  mask = mask.astype(np.float)
+  mask = mask/count
+  return mask
 
 def parse_im_name(im_name, parse_type='id'):
   """Get the person id or cam from an image name."""

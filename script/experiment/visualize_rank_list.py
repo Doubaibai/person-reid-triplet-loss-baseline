@@ -74,7 +74,7 @@ class Config(object):
     self.im_std = [0.229, 0.224, 0.225]
 
     self.test_mirror_type = None
-    self.test_batch_size = 32
+    self.test_batch_size = 64
     self.test_final_batch = True
     self.test_shuffle = False
 
@@ -146,14 +146,15 @@ class ExtractFeature(object):
     self.model = model
     self.TVT = TVT
 
-  def __call__(self, ims):
+  def __call__(self, ims, masks):
     old_train_eval_model = self.model.training
     # Set eval mode.
     # Force all BN layers to use global mean and variance, also disable
     # dropout.
     self.model.eval()
     ims = Variable(self.TVT(torch.from_numpy(ims).float()))
-    feat = self.model(ims)
+    masks = Variable(self.TVT(torch.from_numpy(masks).float()))
+    feat = self.model(ims, masks)
     feat = feat.data.cpu().numpy()
     # Restore the model to its old train/eval mode.
     self.model.train(old_train_eval_model)
@@ -234,7 +235,8 @@ def main():
 
   prng = np.random.RandomState(1)
   # selected query indices
-  sel_q_inds = prng.permutation(range(np.sum(is_q)))[:cfg.num_queries]
+  # sel_q_inds = prng.permutation(range(np.sum(is_q)))[:cfg.num_queries]
+  sel_q_inds = prng.permutation(range(np.sum(is_q)))
 
   q_ids = ids[is_q][sel_q_inds]
   q_cams = cams[is_q][sel_q_inds]

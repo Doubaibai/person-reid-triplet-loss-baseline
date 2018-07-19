@@ -53,7 +53,7 @@ class Config(object):
     parser.add_argument('--crop_prob', type=float, default=0)
     parser.add_argument('--crop_ratio', type=float, default=1)
     parser.add_argument('--mirror', type=str2bool, default=True)
-    parser.add_argument('--ids_per_batch', type=int, default=32)
+    parser.add_argument('--ids_per_batch', type=int, default=16)
     parser.add_argument('--ims_per_id', type=int, default=4)
 
     parser.add_argument('--log_to_file', type=str2bool, default=True)
@@ -263,7 +263,7 @@ class Config(object):
       self.exp_dir, 'stderr_{}.txt'.format(time_str()))
 
     # Saving model weights and optimizer states, for resuming.
-    self.ckpt_file = osp.join(self.exp_dir, 'ckpt.pth')
+    self.ckpt_file = osp.join(self.exp_dir, '{}_ckpt.pth')
     # Just for loading a pretrained model; no optimizer states is needed.
     self.model_weight_file = args.model_weight_file
 
@@ -278,14 +278,15 @@ class ExtractFeature(object):
     self.model = model
     self.TVT = TVT
 
-  def __call__(self, ims):
+  def __call__(self, ims, masks):
     old_train_eval_model = self.model.training
     # Set eval mode.
     # Force all BN layers to use global mean and variance, also disable
     # dropout.
     self.model.eval()
     ims = Variable(self.TVT(torch.from_numpy(ims).float()))
-    feat = self.model(ims)
+    masks = Variable(self.TVT(torch.from_numpy(masks).float()))
+    feat = self.model(ims, masks)
     feat = feat.data.cpu().numpy()
     # Restore the model to its old train/eval mode.
     self.model.train(old_train_eval_model)
@@ -361,7 +362,7 @@ def main():
   ################################
 
   if cfg.resume:
-    resume_ep, scores = load_ckpt(modules_optims, cfg.ckpt_file)
+    resume_ep, scores = load_ckpt(modules_optims, cfg.ckpt_file.format(200))
 
   # May Transfer Models and Optims to Specified Device. Transferring optimizer
   # is to cope with the case when you load the checkpoint to a new device.
@@ -433,6 +434,7 @@ def main():
     sm_meter = AverageMeter()
     dist_ap_meter = AverageMeter()
     dist_an_meter = AverageMeter()
+    dist_rec_meter = AverageMeter()
     loss_meter = AverageMeter()
 
     ep_st = time.time()
@@ -443,14 +445,16 @@ def main():
       step += 1
       step_st = time.time()
 
-      ims, im_names, labels, mirrored, epoch_done = train_set.next_batch()
+      ims, masks, im_names, labels, mirrored, epoch_done = train_set.next_batch()
 
       ims_var = Variable(TVT(torch.from_numpy(ims).float()))
+      masks_var = Variable(TVT(torch.from_numpy(masks).float()))
       labels_t = TVT(torch.from_numpy(labels).long())
 
-      feat = model_w(ims_var)
+      # feat = model_w(ims_var, masks_var)
+      feat = model_w(ims_var, masks_var)
 
-      loss, p_inds, n_inds, dist_ap, dist_an, dist_mat = global_loss(
+      loss, p_inds, n_inds, rec_inds, dist_ap, dist_an, dist_rec, dist_mat = global_loss(
         tri_loss, feat, labels_t,
         normalize_feature=cfg.normalize_feature)
 
@@ -470,11 +474,14 @@ def main():
       d_ap = dist_ap.data.mean()
       # average (anchor, negative) distance
       d_an = dist_an.data.mean()
+      # average rec distance
+      d_rec = dist_rec.data.mean()
 
       prec_meter.update(prec)
       sm_meter.update(sm)
       dist_ap_meter.update(d_ap)
       dist_an_meter.update(d_an)
+      dist_rec_meter.update(d_rec)
       loss_meter.update(to_scalar(loss))
 
       if step % cfg.steps_per_log == 0:
@@ -482,10 +489,10 @@ def main():
           step, ep + 1, time.time() - step_st, )
 
         tri_log = (', prec {:.2%}, sm {:.2%}, '
-                   'd_ap {:.4f}, d_an {:.4f}, '
+                   'd_ap {:.4f}, d_an {:.4f}, d_rec {:.4f}, '
                    'loss {:.4f}'.format(
           prec_meter.val, sm_meter.val,
-          dist_ap_meter.val, dist_an_meter.val,
+          dist_ap_meter.val, dist_an_meter.val, dist_rec_meter.val, 
           loss_meter.val, ))
 
         log = time_log + tri_log
@@ -498,10 +505,10 @@ def main():
     time_log = 'Ep {}, {:.2f}s'.format(ep + 1, time.time() - ep_st)
 
     tri_log = (', prec {:.2%}, sm {:.2%}, '
-               'd_ap {:.4f}, d_an {:.4f}, '
+               'd_ap {:.4f}, d_an {:.4f}, d_rec {:.4f}, '
                'loss {:.4f}'.format(
       prec_meter.avg, sm_meter.avg,
-      dist_ap_meter.avg, dist_an_meter.avg,
+      dist_ap_meter.avg, dist_an_meter.avg, dist_rec_meter.avg,
       loss_meter.avg, ))
 
     log = time_log + tri_log
@@ -514,6 +521,11 @@ def main():
     mAP, Rank1 = 0, 0
     if ((ep + 1) % cfg.epochs_per_val == 0) and (val_set is not None):
       mAP, Rank1 = validate()
+
+    # save ckpt
+    if cfg.log_to_file and ((ep + 1) % 50 == 0):
+      print('Saving model for epoch {}'.format(ep+1))
+      save_ckpt(modules_optims, ep + 1, 0, cfg.ckpt_file.format(ep+1))
 
     # Log to TensorBoard
 
@@ -543,10 +555,7 @@ def main():
              dist_an=dist_an_meter.avg, ),
         ep)
 
-    # save ckpt
-    if cfg.log_to_file:
-      save_ckpt(modules_optims, ep + 1, 0, cfg.ckpt_file)
-
+    
   ########
   # Test #
   ########

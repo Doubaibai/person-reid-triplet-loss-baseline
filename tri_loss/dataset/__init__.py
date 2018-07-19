@@ -1,13 +1,16 @@
 import numpy as np
+import os
+import cv2
 import os.path as osp
 ospj = osp.join
 ospeu = osp.expanduser
+import pickle as pkl
+import numpy as np
 
 from ..utils.utils import load_pickle
-from ..utils.dataset_utils import parse_im_name
+from ..utils.dataset_utils import parse_im_name, load_mask
 from .TrainSet import TrainSet
 from .TestSet import TestSet
-
 
 def create_dataset(
     name='market1501',
@@ -26,6 +29,8 @@ def create_dataset(
   if name == 'market1501':
     im_dir = ospeu(ospj(root_path, 'Dataset/market1501/images'))
     partition_file = ospeu(ospj(root_path, 'Dataset/market1501/partitions.pkl'))
+    mask_dirs = [ospeu(ospj(root_path, 'masks/market1501/')), ospeu(ospj(root_path, 'masks2/market1501/')), \
+    ospeu(ospj(root_path, 'masks_X-152/market1501/'))]
 
   elif name == 'cuhk03':
     im_type = ['detected', 'labeled'][0]
@@ -59,6 +64,7 @@ def create_dataset(
 
     ret_set = TrainSet(
       im_dir=im_dir,
+      mask_dirs = mask_dirs,
       im_names=im_names,
       ids2labels=ids2labels,
       **kwargs)
@@ -78,6 +84,7 @@ def create_dataset(
 
     ret_set = TestSet(
       im_dir=im_dir,
+      mask_dirs = mask_dirs,
       im_names=im_names,
       marks=marks,
       **kwargs)
@@ -88,6 +95,7 @@ def create_dataset(
 
     ret_set = TestSet(
       im_dir=im_dir,
+      mask_dirs = mask_dirs,
       im_names=im_names,
       marks=marks,
       **kwargs)
@@ -116,5 +124,42 @@ def create_dataset(
     pass
 
   print('-' * 40)
+
+  # Visualize masks
+  print('Visualize Masks')
+  vis = 0
+  if vis == 1:
+    vis_dir = '/proj/mask_vis_prob'
+    if not osp.exists(vis_dir):
+      os.mkdir(vis_dir)
+    im_names = os.listdir(im_dir)
+    for i, im_name in enumerate(im_names):
+      if i > 100:
+        break
+      mask_name = im_name+'.pkl'
+      im = cv2.imread(ospj(im_dir, im_name))
+      ###### Visualize each mask #########
+      # mask_dir = mask_dirs[2]
+      # if not osp.exists(ospj(mask_dir, mask_name)):
+      #   masks_all = [np.ones((128,64), dtype=np.uint8)]
+      # else:
+      #   with open(ospj(mask_dir, mask_name), 'r') as f:
+      #     masks_all, scores_all = pkl.load(f)
+      #   # Use mask with highest scores
+      #   # max_id = np.argmax(scores_all)
+      #   # mask = masks_all[max_id]
+      # for mi, mask in enumerate(masks_all):
+      #   mask = np.tile(mask, (3,1,1)).transpose((1,2,0))
+      #   im = np.multiply(im, mask)
+      #   print(ospj(vis_dir, str(mi)+'-'+im_name))
+      #   cv2.imwrite(ospj(vis_dir, im_name+'-'+str(scores_all[mi])+'-'+str(mi)+'.jpg'), im)
+      ####### Visualize mask returned by load_mask #################
+      mask_files = [ospj(mask_dir, mask_name) for mask_dir in mask_dirs]
+      mask = load_mask(mask_files, pool='bor')
+      mask = np.tile(mask, (3,1,1)).transpose((1,2,0))
+      im = np.multiply(im, mask)
+      print(ospj(vis_dir, im_name))
+      cv2.imwrite(ospj(vis_dir, im_name), im)
+    exit(0)
 
   return ret_set
